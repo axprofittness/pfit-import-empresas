@@ -1,4 +1,4 @@
-name: Build and Deploy to ECR
+name: Build and Push to ECR
 
 on:
   push:
@@ -10,9 +10,6 @@ env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: 726542684607.dkr.ecr.us-east-1.amazonaws.com
   ECR_REPOSITORY: proffitness-repo
-  ECS_SERVICE: pfit-import-empresas-service
-  ECS_CLUSTER: pfit-cluster
-  ECS_TASK_DEFINITION: pfit-import-empresas-task
 
 jobs:
   build:
@@ -40,12 +37,11 @@ jobs:
         IMAGE_TAG: pr-${{ github.event.number }}
       working-directory: ./importEmpresas
       run: |
-        # Build a docker container for testing (no push)
         docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG .
         echo "✅ Build successful for PR #${{ github.event.number }}"
 
-  build-and-deploy:
-    name: Build and Deploy
+  build-and-push:
+    name: Build and Push to ECR
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
@@ -65,34 +61,11 @@ jobs:
       uses: aws-actions/amazon-ecr-login@v2
 
     - name: Build, tag, and push image to Amazon ECR
-      id: build-image
       env:
         IMAGE_TAG: ${{ github.sha }}
       working-directory: ./importEmpresas
       run: |
-        # Build a docker container and push it to ECR
         docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG .
         docker tag ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
         docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
         docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
-        echo "image=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
-    - name: Download task definition
-      run: |
-        aws ecs describe-task-definition --task-definition $ECS_TASK_DEFINITION --query taskDefinition > task-definition.json
-
-    - name: Fill in the new image ID in the Amazon ECS task definition
-      id: task-def
-      uses: aws-actions/amazon-ecs-render-task-definition@v1
-      with:
-        task-definition: task-definition.json
-        container-name: pfit-import-empresas-container
-        image: ${{ steps.build-image.outputs.image }}
-
-    - name: Deploy Amazon ECS task definition
-      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-      with:
-        task-definition: ${{ steps.task-def.outputs.task-definition }}
-        service: ${{ env.ECS_SERVICE }}
-        cluster: ${{ env.ECS_CLUSTER }}
-        wait-for-service-stability: true
