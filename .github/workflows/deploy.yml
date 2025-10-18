@@ -2,21 +2,52 @@ name: Build and Deploy to ECR
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: pfit-import-empresas
+  ECR_REGISTRY: 726542684607.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: proffitness-repo
   ECS_SERVICE: pfit-import-empresas-service
   ECS_CLUSTER: pfit-cluster
   ECS_TASK_DEFINITION: pfit-import-empresas-task
 
 jobs:
+  build:
+    name: Build Image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v3
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build image (test only)
+      env:
+        IMAGE_TAG: pr-${{ github.event.number }}
+      working-directory: ./importEmpresas
+      run: |
+        # Build a docker container for testing (no push)
+        docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG .
+        echo "✅ Build successful for PR #${{ github.event.number }}"
+
   build-and-deploy:
     name: Build and Deploy
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
     - name: Checkout
@@ -36,16 +67,15 @@ jobs:
     - name: Build, tag, and push image to Amazon ECR
       id: build-image
       env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       working-directory: ./importEmpresas
       run: |
         # Build a docker container and push it to ECR
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        docker build -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG .
+        docker tag ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+        echo "image=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
     - name: Download task definition
       run: |
