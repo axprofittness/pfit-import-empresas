@@ -8,17 +8,17 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Instale as dependências
-RUN npm ci --only=production
+# Instale todas as dependências (incluindo devDependencies)
+RUN npm ci
 
 # Copie o código fonte
 COPY src/ ./src/
 
-# Instale TypeScript globalmente e compile o projeto
-RUN npm install -g typescript && npm run build
+# Compile o projeto TypeScript
+RUN npm run build
 
-# Remova dependências de desenvolvimento e TypeScript
-RUN npm prune --production && npm uninstall -g typescript
+# Remova dependências de desenvolvimento (mantenha apenas production)
+RUN npm prune --production
 
 # Crie um usuário não-root
 RUN addgroup -g 1001 -S nodejs && \
