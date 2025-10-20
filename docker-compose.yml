@@ -5,21 +5,15 @@ services:
     build:
       context: ./importEmpresas
       dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
     environment:
       - NODE_ENV=development
-      - PORT=3000
     volumes:
       - ./importEmpresas/src:/app/src
       - ./importEmpresas/package.json:/app/package.json
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    restart: "no"  # Job executa uma vez e para
+    
+    # Para testar o job, descomente:
+    # command: npm run dev
 
   # Opcional: PostgreSQL local para testes
   postgres:

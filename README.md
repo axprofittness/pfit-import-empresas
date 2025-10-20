@@ -1,15 +1,15 @@
-# PFit Import Empresas - Fargate Application
+# PFit Import Empresas - Fargate Scheduled Job
 
-Aplicação migrada de Lambda para Fargate para importar dados de empresas.
+Job agendado que roda no Fargate para importar dados de empresas de diferentes fontes.
 
 ## 🚀 Tecnologias
 
 - Node.js 20+
 - TypeScript
-- Express.js
 - Docker
-- AWS Fargate
+- AWS Fargate (Scheduled Tasks)
 - ECR (Elastic Container Registry)
+- EventBridge / CloudWatch Events (Agendamento)
 - GitHub Actions (CI/CD)
 
 ## 📦 Estrutura do Projeto
@@ -18,17 +18,17 @@ Aplicação migrada de Lambda para Fargate para importar dados de empresas.
 pfit-import-empresas/
 ├── importEmpresas/
 │   ├── src/
-│   │   ├── server.ts          # Servidor Express (substitui handler Lambda)
-│   │   ├── application/       # Lógica de negócio
-│   │   ├── adapters/          # Adaptadores externos
-│   │   ├── domain/            # Tipos e entidades
-│   │   └── infra/             # Infraestrutura (DB, etc)
-│   ├── Dockerfile             # Container da aplicação
-│   ├── package.json
-│   └── tsconfig.json
+│   │   ├── job.ts               # Job principal (executa e termina)
+│   │   ├── application/         # Lógica de negócio
+│   │   ├── adapters/            # Adaptadores externos
+│   │   ├── domain/              # Tipos e entidades
+│   │   └── infra/               # Infraestrutura (DB, etc)
+│   ├── Dockerfile               # Container do job
+│   ├── package.json             # Dependencies
+│   └── tsconfig.json            # Config TypeScript
 ├── .github/workflows/
-│   └── deploy.yml             # CI/CD Pipeline
-└── docker-compose.yml         # Desenvolvimento local
+│   └── deploy.yml               # CI/CD Pipeline
+└── docker-compose.yml           # Desenvolvimento local
 ```
 
 ## 🔧 Desenvolvimento Local
@@ -58,115 +58,105 @@ cp .env.example .env
 npm install
 ```
 
-4. Execute em modo desenvolvimento:
+4. Execute o job em modo desenvolvimento:
 ```bash
 npm run dev
 ```
 
 ### Usando Docker
 
-1. Build e execute com Docker Compose:
+1. Execute o job com Docker Compose:
 ```bash
-docker-compose up --build
+docker-compose up pfit-import-empresas
 ```
 
-2. Acesse a aplicação:
-- Health Check: http://localhost:3000/health
-- Import Empresas: http://localhost:3000/import-empresas
+O job executará uma vez e terminará.
 
-## 🚀 Deploy
-
-### Configuração AWS
-
-1. **ECR Repository**: Crie um repositório no ECR:
-```bash
-aws ecr create-repository --repository-name pfit-import-empresas
-```
-
-2. **Task Definition**: Crie uma task definition no ECS para Fargate com:
-   - Container name: `pfit-import-empresas-container`
-   - Port mapping: 3000
-   - Health check: `/health`
-
-3. **ECS Service**: Crie um serviço no ECS apontando para a task definition
-
-### GitHub Secrets
-
-Configure os seguintes secrets no GitHub:
-- `AWS_ACCESS_KEY_ID`: Access Key da AWS
-- `AWS_SECRET_ACCESS_KEY`: Secret Key da AWS
+## 🚀 Deploy e Agendamento
 
 ### Pipeline CI/CD
 
-O workflow do GitHub Actions é executado automaticamente quando:
-- Push para `main` ou `develop`
-- Pull Request para `main`
+O workflow do GitHub Actions:
+1. **Build da imagem Docker**
+2. **Push para ECR**
+3. A imagem fica disponível para uso no Fargate
 
-Processo:
-1. Build da imagem Docker
-2. Push para ECR
-3. Update da task definition do ECS
-4. Deploy no Fargate
+### Agendamento no AWS
 
-## 📡 Endpoints
+A execução é feita via **EventBridge** ou **CloudWatch Events**:
 
-### GET/POST `/import-empresas`
-Executa o processo de importação de todas as empresas.
+```yaml
+# Exemplo de agendamento (configurar via Terraform/CloudFormation)
+ScheduleExpression: "cron(0 2 * * ? *)"  # Diariamente às 2h
+TaskDefinition: "pfit-import-empresas:latest"
+LaunchType: "FARGATE"
+```
 
-**Response:**
+### Configuração Fargate
+
 ```json
 {
-  "success": true,
-  "data": [
+  "family": "pfit-import-empresas",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
     {
-      "empresa": "AFitness",
-      "resultado": { ... }
+      "name": "import-job",
+      "image": "726542684607.dkr.ecr.us-east-1.amazonaws.com/proffitness-repo:latest",
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/pfit-import-empresas"
+        }
+      }
     }
-  ],
-  "timestamp": "2024-10-16T10:30:00.000Z"
+  ]
 }
 ```
 
-### GET `/health`
-Health check para o load balancer do Fargate.
+## 📊 Execução e Logs
 
-**Response:**
-```json
-{
-  "status": "healthy",
-  "timestamp": "2024-10-16T10:30:00.000Z"
-}
+### ✅ Execução Bem-sucedida
+```
+🚀 Iniciando job de importação de empresas...
+⏰ Timestamp: 2024-10-18T02:00:00.000Z
+� Executando importação...
+✅ Importação concluída com sucesso!
+📈 Resumo: 3 sucessos, 0 erros
 ```
 
-## 🔨 Scripts Disponíveis
+### ❌ Execução com Erro
+```
+🚀 Iniciando job de importação de empresas...
+❌ Erro durante a importação: Connection timeout
+```
+
+### 🔍 Monitoramento
+
+- **CloudWatch Logs**: Logs estruturados
+- **Exit Codes**: 0 = sucesso, 1 = erro
+- **CloudWatch Metrics**: Execuções e falhas
+
+## 🎯 Vantagens da Arquitetura
+
+### **Job Agendado vs Servidor Contínuo:**
+
+| Aspecto | Job Agendado ✅ | Servidor HTTP ❌ |
+|---------|----------------|------------------|
+| **Recursos** | Usa apenas quando executa | Sempre consumindo CPU/Memória |
+| **Custo** | Paga apenas pela execução | Paga 24/7 |
+| **Escalabilidade** | Auto-scaling por job | Precisa dimensionar para pico |
+| **Simplicidade** | Executa e termina | Gerencia conexões, health checks |
+
+## � Scripts Disponíveis
 
 - `npm run build`: Compila TypeScript para JavaScript
-- `npm start`: Executa a aplicação compilada
-- `npm run dev`: Executa em modo desenvolvimento com hot reload
+- `npm start`: Executa o job compilado
+- `npm run dev`: Executa em modo desenvolvimento
 - `npm test`: Executa os testes
-
-## 📝 Migração de Lambda para Fargate
-
-### Principais Mudanças
-
-1. **Handler → Express Server**: Substituiu o handler Lambda por um servidor Express
-2. **Event-driven → HTTP**: Mudou de processamento por eventos para endpoints HTTP
-3. **Container**: Adicionou Dockerfile para containerização
-4. **Health Check**: Implementou endpoint `/health` para o Fargate
-5. **Graceful Shutdown**: Adicionou handlers para SIGTERM e SIGINT
-
-### Benefícios da Migração
-
-- **Controle de recursos**: Melhor controle sobre CPU e memória
-- **Execução contínua**: Não há cold start como nas Lambdas
-- **Debugging**: Mais fácil para debug e troubleshooting
-- **Escalabilidade**: Melhor para cargas de trabalho contínuas
-
-## 🔍 Monitoramento
-
-- **Health Check**: Endpoint `/health` para verificação de saúde
-- **Logs**: Logs estruturados para CloudWatch
-- **Graceful Shutdown**: Shutdown limpo em caso de redeploy
 
 ## 🤝 Contribuição
 

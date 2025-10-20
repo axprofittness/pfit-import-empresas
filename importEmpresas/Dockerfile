@@ -28,12 +28,8 @@ RUN addgroup -g 1001 -S nodejs && \
 RUN chown -R nextjs:nodejs /app
 USER nextjs
 
-# Exponha a porta
-EXPOSE 3000
-
 # Configure variáveis de ambiente
 ENV NODE_ENV=production
-ENV PORT=3000
 
-# Comando para executar a aplicação
-CMD ["npm", "start"]
+# Comando para executar o job (sem CMD para permitir override)
+ENTRYPOINT ["npm", "start"]
